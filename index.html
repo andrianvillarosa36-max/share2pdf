@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Share2PDF</title>
+<meta name="description" content="Turn a copied Claude share conversation into a PDF, Markdown or text file.">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>
+try{var _s=JSON.parse(localStorage.getItem('s2p.settings')||'{}'),_t=_s.theme||'dark';
+if(_t==='system')_t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
+document.documentElement.dataset.theme=_t;}catch(e){}
+</script>
+<style>
+:root{--bg:#000;--fg:#fff;--mut:#8f8f8f;--line:#2b2b2b;--card:#0b0b0b;--btn:#fff;--btnfg:#000}
+[data-theme=light]{--bg:#fff;--fg:#000;--mut:#6b6b6b;--line:#d6d6d6;--card:#f4f4f4;--btn:#000;--btnfg:#fff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.45}
+body{min-height:100vh;padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+header{padding:calc(22px + env(safe-area-inset-top,0px)) 18px 6px;max-width:640px;margin:0 auto}
+.logo{font-weight:800;font-size:22px;letter-spacing:-.5px}
+.logo span{border:2px solid var(--fg);padding:0 6px;margin-left:4px}
+.sub{color:var(--mut);font-size:13px;margin-top:2px}
+main{max-width:640px;margin:0 auto;padding:12px 18px}
+.view{display:none}.view.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mut);margin:0 0 10px;font-weight:700}
+label{display:block;font-size:14px;margin:12px 0 6px}
+input[type=text],input[type=search],input[type=number],textarea,select{
+  width:100%;background:var(--bg);color:var(--fg);border:1.5px solid var(--line);
+  border-radius:10px;padding:12px;font:inherit;outline:none}
+input:focus,textarea:focus,select:focus,button:focus-visible,.btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+textarea{min-height:140px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:120px}
+button,.btn{appearance:none;border:1.5px solid var(--btn);background:var(--btn);color:var(--btnfg);
+  font:inherit;font-weight:700;padding:12px 16px;border-radius:10px;cursor:pointer;text-align:center;
+  text-decoration:none;display:inline-block}
+button.ghost,.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+button.ghost:active,.btn.ghost:active{border-color:var(--fg)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.small,.btn.small{padding:8px 12px;font-size:14px}
+.bar{height:10px;border:1.5px solid var(--fg);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--fg);transition:width .3s ease}
+.pmsg{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-top:8px}
+.hide{display:none!important}
+.err{border-color:var(--fg);border-style:dashed}
+.err b{display:block;margin-bottom:6px}
+.warn{border:1.5px dashed var(--fg);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:12px}
+.mut{color:var(--mut)}.small-t{font-size:13px}
+p{margin:0 0 8px}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--mut);font-size:14px}
+.stats{display:flex;gap:18px;margin:10px 0 12px}
+.stats div b{display:block;font-size:20px}
+.stats div{font-size:12px;color:var(--mut)}
+.msgs{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0}
+.msg{padding:10px 12px;border-bottom:1px solid var(--line);font-size:14px;overflow-wrap:anywhere}
+.msg:last-child{border-bottom:0}
+.tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:1px;padding:1px 6px;margin-right:6px;
+  border:1.5px solid var(--fg);border-radius:4px}
+.tag.u{background:var(--fg);color:var(--bg)}
+.title{font-weight:700;font-size:18px;overflow-wrap:anywhere}
+.hist{display:flex;flex-direction:column;gap:10px}
+.item{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card)}
+.item .t{font-weight:700;overflow-wrap:anywhere}
+.item .m{font-size:12px;color:var(--mut);margin:3px 0 10px}
+.item .acts{display:flex;gap:8px;flex-wrap:wrap}
+.fmt{font-size:10px;font-weight:800;border:1.5px solid var(--fg);border-radius:4px;padding:0 5px;margin-right:6px}
+.toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}
+.toggle:last-of-type{border-bottom:0}
+.toggle input{width:22px;height:22px;accent-color:var(--fg)}
+input[type=range]{width:100%;accent-color:var(--fg)}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);
+  display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav div{display:flex;width:100%;max-width:640px}
+nav button{flex:1;background:transparent;color:var(--mut);border:0;border-radius:0;padding:16px 8px;font-size:13px;letter-spacing:1px;text-transform:uppercase}
+nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
+#toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);
+  padding:10px 16px;border-radius:99px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s;z-index:9;max-width:90vw;text-align:center}
+#toast.on{opacity:1}
+.empty{text-align:center;color:var(--mut);padding:30px 0}
+@media (prefers-reduced-motion:reduce){.bar>i,#toast{transition:none}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous" defer></script>
+</head>
+<body>
+<header>
+  <div class="logo">SHARE<span>PDF</span></div>
+  <div class="sub">Turn a copied Claude conversation into a file you can keep.</div>
+</header>
+
+<main>
+<!-- ============ CONVERT ============ -->
+<section id="v-convert" class="view on">
+  <div class="card">
+    <h2>1. Share link</h2>
+    <input id="url" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="https://claude.ai/share/...">
+    <div class="row" style="margin-top:10px">
+      <button id="btnPasteLink" class="ghost">Paste link</button>
+      <button id="btnOpen" class="ghost" disabled>Open page</button>
+    </div>
+    <details>
+      <summary>Another way to get the text</summary>
+      <p class="small-t mut" style="margin-top:8px">If the normal page copies badly, this opens the chat's raw data instead. When it loads, select everything and copy it.</p>
+      <button id="btnOpenRaw" class="ghost small" disabled>Open raw data</button>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>2. Conversation text</h2>
+    <p class="small-t mut">On the page you opened, long-press, choose Select all, then Copy. Paste it here.</p>
+    <textarea id="raw" placeholder="Paste the conversation here"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="btnPasteText" class="ghost">Paste text</button>
+      <button id="btnRead">Review</button>
+    </div>
+  </div>
+
+  <div id="progress" class="card hide">
+    <h2>Progress</h2>
+    <div class="bar"><i id="barfill"></i></div>
+    <div class="pmsg"><span id="pmsg">Starting</span><span id="ppct">0%</span></div>
+  </div>
+
+  <div id="error" class="card err hide">
+    <b>Something went wrong</b>
+    <div id="errmsg"></div>
+  </div>
+
+  <div id="preview" class="card hide">
+    <h2>Review</h2>
+    <label for="ptitle" style="margin-top:0">Title</label>
+    <input id="ptitle" type="text" autocomplete="off">
+    <div class="stats">
+      <div><b id="pcount">0</b>messages</div>
+      <div><b id="pwords">0</b>words</div>
+    </div>
+    <div id="pnote" class="small-t mut"></div>
+    <div id="pmsgs" class="msgs"></div>
+    <label for="fmt">Output format</label>
+    <select id="fmt">
+      <option value="pdf">PDF</option>
+      <option value="md">Markdown (.md)</option>
+      <option value="txt">Plain text (.txt)</option>
+    </select>
+    <div id="warn" class="warn hide"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="btnCancel" class="ghost">Cancel</button>
+      <button id="btnGo">Confirm &amp; generate</button>
+    </div>
+  </div>
+
+  <div id="result" class="card hide">
+    <h2>Ready</h2>
+    <div id="rtitle" class="title"></div>
+    <div id="rmeta" class="mut small-t" style="margin:4px 0 14px"></div>
+    <div class="row">
+      <a id="btnDl" class="btn">Download</a>
+      <button id="btnShare" class="ghost hide">Share</button>
+    </div>
+    <button id="btnAgain" class="ghost" style="width:100%;margin-top:10px">Convert another</button>
+  </div>
+</section>
+
+<!-- ============ HISTORY ============ -->
+<section id="v-history" class="view">
+  <div class="card">
+    <h2>History</h2>
+    <input id="q" type="search" placeholder="Search by title or link">
+    <div class="row" style="margin-top:10px;align-items:center">
+      <div id="hstat" class="mut small-t" style="flex:2"></div>
+      <button id="btnClear" class="ghost small" style="flex:1">Clear all</button>
+    </div>
+    <div id="hnote" class="small-t mut hide" style="margin-top:8px">Saving is blocked in this browser, so history lasts only until you close the tab.</div>
+  </div>
+  <div id="hist" class="hist"></div>
+</section>
+
+<!-- ============ SETTINGS ============ -->
+<section id="v-settings" class="view">
+  <div class="card">
+    <h2>Output</h2>
+    <label for="s_format">Default format</label>
+    <select id="s_format"><option value="pdf">PDF</option><option value="md">Markdown</option><option value="txt">Plain text</option></select>
+    <label for="s_page">Page size (PDF)</label>
+    <select id="s_page"><option>A4</option><option>Letter</option></select>
+    <label for="s_font">Font size (PDF): <b id="s_fontv">10</b> pt</label>
+    <input id="s_font" type="range" min="8" max="16" step="1">
+  </div>
+  <div class="card">
+    <h2>Content</h2>
+    <div class="toggle"><span>Show YOU / CLAUDE labels</span><input id="s_role" type="checkbox"></div>
+    <div class="toggle"><span>Title and info header</span><input id="s_head" type="checkbox"></div>
+    <div class="toggle"><span>Page numbers (PDF)</span><input id="s_pnum" type="checkbox"></div>
+    <div class="toggle"><span>Include code blocks</span><input id="s_code" type="checkbox"></div>
+    <div class="toggle"><span>Include Claude's thinking</span><input id="s_think" type="checkbox"></div>
+  </div>
+  <div class="card">
+    <h2>App</h2>
+    <label for="s_theme">Theme</label>
+    <select id="s_theme"><option value="dark">Black</option><option value="light">White</option><option value="system">Match phone</option></select>
+    <label for="s_max">Keep last N files in history</label>
+    <input id="s_max" type="number" min="5" max="500">
+    <div id="installRow" class="hide" style="margin-top:14px">
+      <button id="btnInstall" style="width:100%">Install on this phone</button>
+    </div>
+  </div>
+  <div class="mut small-t" style="padding:0 4px 10px">Settings save automatically. Everything stays on this device. PDFs use built-in fonts, so emoji and non-Latin text are not shown in PDF output (Markdown and plain text keep everything).</div>
+</section>
+</main>
+
+<nav><div>
+  <button data-v="convert" class="on">Convert</button>
+  <button data-v="history">History</button>
+  <button data-v="settings">Settings</button>
+</div></nav>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const SHARE_RE=/https?:\/\/(?:www\.)?claude\.ai\/share\/([0-9a-fA-F-]{36})/;
+
+/* ================= settings ================= */
+const LS={
+  get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+const DEFAULTS={format:'pdf',page_size:'A4',font_size:10,role_labels:true,title_header:true,page_numbers:true,
+  include_code:true,include_thinking:false,max_history:50,theme:'dark'};
+let S=Object.assign({},DEFAULTS,LS.get('s2p.settings',{}));
+function fixSettings(){
+  if(!['pdf','md','txt'].includes(S.format))S.format='pdf';
+  if(!['A4','Letter'].includes(S.page_size))S.page_size='A4';
+  if(!['dark','light','system'].includes(S.theme))S.theme='dark';
+  S.font_size=Math.max(8,Math.min(16,parseInt(S.font_size,10)||10));
+  S.max_history=Math.max(5,Math.min(500,parseInt(S.max_history,10)||50));
+}
+fixSettings();
+const mq=window.matchMedia?matchMedia('(prefers-color-scheme: light)'):null;
+function applyTheme(){
+  let t=S.theme; if(t==='system')t=(mq&&mq.matches)?'light':'dark';
+  document.documentElement.dataset.theme=t;
+  const m=document.querySelector('meta[name=theme-color]'); if(m)m.content=t==='light'?'#ffffff':'#000000';
+}
+if(mq&&mq.addEventListener)mq.addEventListener('change',()=>{if(S.theme==='system')applyTheme()});
+applyTheme();
+
+/* ================= small helpers ================= */
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),2200)}
+function fmtBytes(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB'}
+function fmtDate(s){try{return new Date(s).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})}catch(e){return s}}
+const show=(sel,on=true)=>$(sel).classList.toggle('hide',!on);
+const pad2=n=>String(n).padStart(2,'0');
+function stamp(){const d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())}
+const words=conv=>conv.messages.reduce((n,m)=>n+m.text.split(/\s+/).filter(Boolean).length,0);
+const safeName=t=>(String(t).normalize('NFKD').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60)||'conversation');
+const roleName=r=>r==='user'?'You':r==='assistant'?'Claude':'';
+
+/* ================= text cleaning (PDF fonts are Latin only) ================= */
+const WIN=new Set();
+(function(){for(let c=0x20;c<=0x7e;c++)WIN.add(c);for(let c=0xa0;c<=0xff;c++)WIN.add(c);
+[0x152,0x153,0x160,0x161,0x178,0x17d,0x17e,0x192,0x2c6,0x2dc,0x2013,0x2014,0x2018,0x2019,0x201a,0x201c,0x201d,0x201e,
+ 0x2020,0x2021,0x2022,0x2026,0x2030,0x2039,0x203a,0x20ac,0x2122].forEach(c=>WIN.add(c));})();
+const IGNORE=new Set([0x200b,0x200c,0x200d,0x2060,0xfeff,0xfe0f,0xfe0e]);
+const MAP={'\u2192':'->','\u2190':'<-','\u2194':'<->','\u21d2':'=>','\u2191':'^','\u2193':'v','\u2713':'v','\u2714':'v','\u2717':'x','\u2718':'x',
+ '\u2265':'>=','\u2264':'<=','\u2260':'!=','\u2248':'~','\u2212':'-','\u2011':'-','\u00a0':' ','\u2009':' ','\u202f':' ','\u2002':' ','\u2003':' ',
+ '\u2500':'-','\u2501':'-','\u2502':'|','\u2503':'|','\u251c':'+','\u2514':'+','\u250c':'+','\u2510':'+','\u2518':'+','\u2524':'+',
+ '\u252c':'+','\u2534':'+','\u253c':'+','\u2550':'=','\u2551':'|','\u25b6':'>','\u25ba':'>','\u25bc':'v','\u25b2':'^','\u25cf':'\u2022',
+ '\u25cb':'o','\u2605':'*','\u2606':'*','\u00ad':'-'};
+const isEmoji=c=>c>=0x1f000||(c>=0x2600&&c<=0x27bf)||(c>=0x2b00&&c<=0x2bff);
+function clean(s,st){
+  let out='';
+  for(const ch of String(s)){
+    const c=ch.codePointAt(0);
+    if(c===10){out+='\n';continue}
+    if(c===9){out+='    ';continue}
+    if(c<32||c===127||IGNORE.has(c))continue;
+    const m=MAP[ch]; if(m!==undefined){out+=m;continue}
+    if(WIN.has(c)){out+=ch;continue}
+    if(st){st.lost++;if(st.sample.size<8)st.sample.add(ch)}
+    out+=isEmoji(c)?'':'?';
+  }
+  return out;
+}
+
+/* ================= parsing ================= */
+function parseSnapshot(obj){
+  if(!obj||typeof obj!=='object'||Array.isArray(obj))throw new Error('Unexpected data format.');
+  const title=obj.snapshot_name||obj.name||obj.title||'Shared conversation';
+  const messages=[];
+  for(const m of (Array.isArray(obj.chat_messages)?obj.chat_messages:[])){
+    if(!m||typeof m!=='object')continue;
+    const role=(m.sender==='human'||m.sender==='user')?'user':'assistant';
+    const texts=[],thinking=[];
+    if(Array.isArray(m.content)){
+      for(const b of m.content){
+        if(!b||typeof b!=='object')continue;
+        if(b.type==='text'&&b.text)texts.push(b.text);
+        else if(b.type==='thinking'&&b.thinking)thinking.push(b.thinking);
+      }
+    }else if(typeof m.content==='string'&&m.content.trim())texts.push(m.content);
+    if(!texts.length&&typeof m.text==='string')texts.push(m.text);
+    const attachments=[];
+    for(const k of ['attachments','files','files_v2']){
+      if(!Array.isArray(m[k]))continue;
+      for(const a of m[k]){if(a&&typeof a==='object'){const n=a.file_name||a.name;if(n)attachments.push(String(n))}}
+    }
+    const text=texts.map(t=>String(t).trim()).filter(Boolean).join('\n\n');
+    if(text||attachments.length)messages.push({role,text,thinking:thinking.join('\n\n').trim(),attachments});
+  }
+  return {title:String(title),messages,mode:'json'};
+}
+const U_RE=/^(?:you|human|user|me)(?:\s+said)?\s*:?\s*$/i;
+const C_RE=/^(?:claude|assistant|ai)(?:\s+(?:said|responded))?\s*:?\s*$/i;
+const INL_RE=/^(you|human|user|me|claude|assistant|ai)\s*:\s+(\S.*)$/i;
+function roleOf(w){return /^(you|human|user|me)$/i.test(w)?'user':'assistant'}
+function parseText(raw){
+  const lines=raw.replace(/\r\n?/g,'\n').split('\n'), marks=[];
+  lines.forEach((ln,i)=>{
+    const t=ln.trim();
+    if(U_RE.test(t))marks.push({i,role:'user',first:''});
+    else if(C_RE.test(t))marks.push({i,role:'assistant',first:''});
+    else{const m=t.match(INL_RE);if(m)marks.push({i,role:roleOf(m[1]),first:m[2]})}
+  });
+  if(marks.length<2){
+    const first=(lines.find(l=>l.trim())||'Pasted text').trim().slice(0,80);
+    return {title:first,messages:[{role:'note',text:raw.trim(),thinking:'',attachments:[]}],mode:'plain'};
+  }
+  const head=lines.slice(0,marks[0].i).join('\n').trim();
+  const title=head&&head.length<=120&&!head.includes('\n')?head:'Shared conversation';
+  const messages=[];
+  marks.forEach((mk,k)=>{
+    const end=k+1<marks.length?marks[k+1].i:lines.length;
+    const body=[mk.first].concat(lines.slice(mk.i+1,end)).join('\n').trim();
+    if(body)messages.push({role:mk.role,text:body,thinking:'',attachments:[]});
+  });
+  return {title,messages,mode:'dialog'};
+}
+function parseInput(raw){
+  const t=raw.trim(); if(!t)throw new Error('Paste the conversation first.');
+  if(t[0]==='{'||t[0]==='['){
+    try{const o=JSON.parse(t);const c=parseSnapshot(Array.isArray(o)?{chat_messages:o}:o);if(c.messages.length)return c}catch(e){}
+  }
+  const c=parseText(t);
+  if(!c.messages.length)throw new Error('No readable messages were found in that text.');
+  return c;
+}
+
+/* ================= TXT / Markdown ================= */
+function bodyText(m){
+  let t=m.text;
+  if(!S.include_code)t=t.replace(/```[\s\S]*?(?:```|$)/g,'[code block omitted]');
+  if(m.attachments&&m.attachments.length)t+='\n\n'+m.attachments.map(a=>'[Attachment: '+a+']').join('\n');
+  return t.trim();
+}
+function buildMarkdown(conv){
+  const o=['# '+conv.title,''];
+  if(conv.url)o.push('Source: '+conv.url);
+  o.push('Exported: '+stamp(),'','---','');
+  for(const m of conv.messages){
+    if(S.role_labels&&m.role!=='note')o.push('## '+roleName(m.role),'');
+    if(S.include_thinking&&m.thinking)o.push('> Thinking: '+m.thinking.replace(/\n/g,'\n> '),'');
+    o.push(bodyText(m),'','---','');
+  }
+  return o.join('\n');
+}
+function buildTxt(conv){
+  const o=[conv.title,'='.repeat(Math.min(conv.title.length,70))];
+  if(conv.url)o.push('Source: '+conv.url);
+  o.push('Exported: '+stamp(),'');
+  for(const m of conv.messages){
+    if(S.role_labels&&m.role!=='note')o.push(roleName(m.role).toUpperCase()+':');
+    if(S.include_thinking&&m.thinking)o.push('[Thinking]',m.thinking,'');
+    o.push(bodyText(m),'','-'.repeat(60),'');
+  }
+  return o.join('\n');
+}
+
+/* ================= markdown -> blocks / runs ================= */
+const SEP=/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const splitRow=l=>l.trim().replace(/^\||\|$/g,'').split('|');
+function parseBlocks(text){
+  const out=[],lines=text.split('\n');let i=0,para=[],inCode=false,code=[];
+  const flush=()=>{if(para.length){out.push({t:'p',lines:para.slice()});para.length=0}};
+  while(i<lines.length){
+    const ln=lines[i];
+    if(ln.trim().startsWith('```')){
+      if(!inCode){flush();inCode=true;code=[]}else{inCode=false;out.push({t:'code',lines:code})}
+      i++;continue;
+    }
+    if(inCode){code.push(ln);i++;continue}
+    if(!ln.trim()){flush();i++;continue}
+    let m=ln.match(/^(#{1,6})\s+(.*)$/);
+    if(m){flush();out.push({t:'h',level:m[1].length,text:m[2]});i++;continue}
+    if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)){flush();out.push({t:'hr'});i++;continue}
+    if(ln.trim().startsWith('|')&&i+1<lines.length&&SEP.test(lines[i+1])){
+      flush();const rows=[splitRow(ln)];i+=2;
+      while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){rows.push(splitRow(lines[i]));i++}
+      out.push({t:'table',rows});continue;
+    }
+    m=ln.match(/^(\s*)([-*+\u2022]|\d+[.)])\s+(.*)$/);
+    if(m){
+      flush();
+      const level=Math.min(Math.floor(m[1].replace(/\t/g,'  ').length/2),3);
+      out.push({t:'li',level,marker:/^\d/.test(m[2])?m[2]:'\u2022',text:m[3]});i++;continue;
+    }
+    if(ln.trimStart().startsWith('>')){flush();out.push({t:'quote',text:ln.trimStart().replace(/^>+\s?/,'')});i++;continue}
+    para.push(ln);i++;
+  }
+  if(inCode&&code.length)out.push({t:'code',lines:code});
+  flush();return out;
+}
+const fontOf=st=>st.b&&st.i?'bi':st.b?'b':st.i?'i':'r';
+const EMPH_SRC=String.raw`\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*|(?<![\w])__(?=\S)([\s\S]+?)(?<=\S)__(?![\w])|\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*|(?<![\w])_(?=[^\s_])([^_\n]+?)(?<=[^\s_])_(?![\w])|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)`;
+function emph(p,st,runs){
+  const re=new RegExp(EMPH_SRC,'g');let last=0,m;
+  const plain=t=>runs.push({t,f:fontOf(st),u:!!st.u});
+  while((m=re.exec(p))){
+    if(m.index>last)plain(p.slice(last,m.index));
+    if(m[1]!==undefined)emph(m[1],Object.assign({},st,{b:true}),runs);
+    else if(m[2]!==undefined)emph(m[2],Object.assign({},st,{b:true}),runs);
+    else if(m[3]!==undefined)emph(m[3],Object.assign({},st,{i:true}),runs);
+    else if(m[4]!==undefined)emph(m[4],Object.assign({},st,{i:true}),runs);
+    else{
+      emph(m[5],Object.assign({},st,{u:true}),runs);
+      if(m[5].trim()!==m[6])runs.push({t:' ('+m[6]+')',f:fontOf(st),gray:0.4});
+    }
+    last=re.lastIndex;
+  }
+  if(last<p.length)plain(p.slice(last));
+}
+function inlineRuns(s,st){
+  const runs=[];
+  for(const p of s.split(/(`[^`\n]+`)/)){
+    if(p.length>2&&p[0]==='`'&&p[p.length-1]==='`')runs.push({t:p.slice(1,-1),f:'c',code:true});
+    else emph(p,st||{},runs);
+  }
+  return runs;
+}
+function linesToRuns(lines){
+  const runs=[];
+  lines.forEach((ln,k)=>{if(k)runs.push({t:'\n',f:'r'});inlineRuns(ln,{}).forEach(r=>runs.push(r))});
+  return runs;
+}
+
+/* ================= PDF engine (pdf-lib, standard fonts) ================= */
+async function buildPdf(conv,onProgress){
+  const PL=window.PDFLib, rgb=PL.rgb, SF=PL.StandardFonts;
+  const doc=await PL.PDFDocument.create();
+  const F={r:await doc.embedFont(SF.Helvetica),b:await doc.embedFont(SF.HelveticaBold),
+    i:await doc.embedFont(SF.HelveticaOblique),bi:await doc.embedFont(SF.HelveticaBoldOblique),c:await doc.embedFont(SF.Courier)};
+  const fs=S.font_size, dims=S.page_size==='Letter'?[612,792]:[595.28,841.89], W=dims[0], H=dims[1];
+  const M=51, cw=W-2*M, left=M, top=M, bottom=H-M-17;
+  const g=v=>rgb(v,v,v), BLACK=g(0);
+  const pages=[];let page,y=0;
+  const newPage=()=>{page=doc.addPage([W,H]);pages.push(page);y=top};
+  const ensure=h=>{if(y+h>bottom&&y>top+0.5)newPage()};
+  const wid=(t,f,sz)=>F[f].widthOfTextAtSize(t,sz);
+  const bl=(yTop,Ld,size)=>H-(yTop+Ld/2+size*0.3);
+
+  function wrap(runs,maxW,size){
+    const toks=[];
+    for(const r of runs){
+      for(const part of r.t.split(/(\n| +)/)){
+        if(part==='')continue;
+        if(part==='\n')toks.push({br:true});
+        else toks.push({t:part,f:r.f,u:r.u,code:r.code,gray:r.gray,space:part[0]===' '});
+      }
+    }
+    const lines=[];let cur=[],w=0;
+    const push=()=>{while(cur.length&&cur[cur.length-1].space)w-=cur.pop().w;lines.push({segs:cur,w});cur=[];w=0};
+    for(const tk of toks){
+      if(tk.br){push();continue}
+      tk.w=wid(tk.t,tk.f,size);
+      if(tk.space){if(cur.length){cur.push(tk);w+=tk.w}continue}
+      if(w+tk.w<=maxW){cur.push(tk);w+=tk.w;continue}
+      if(cur.length)push();
+      if(tk.w<=maxW){cur.push(tk);w=tk.w;continue}
+      let piece='';
+      for(const ch of tk.t){
+        if(piece&&wid(piece+ch,tk.f,size)>maxW){
+          const pw=wid(piece,tk.f,size);cur.push(Object.assign({},tk,{t:piece,w:pw}));w=pw;push();piece=ch;
+        }else piece+=ch;
+      }
+      if(piece){const pw=wid(piece,tk.f,size);cur.push(Object.assign({},tk,{t:piece,w:pw}));w=pw}
+    }
+    if(cur.length||!lines.length)push();
+    return lines;
+  }
+  function drawSegs(segs,x,yTop,Ld,size){
+    const base=bl(yTop,Ld,size);let cx=x;
+    for(const sg of segs){
+      const color=sg.gray!==undefined?g(sg.gray):BLACK;
+      if(sg.code)page.drawRectangle({x:cx-0.6,y:base-size*0.24,width:sg.w+1.2,height:size*1.1,color:g(0.92)});
+      if(!sg.space){
+        page.drawText(sg.t,{x:cx,y:base,size,font:F[sg.f],color});
+        if(sg.u)page.drawLine({start:{x:cx,y:base-1.4},end:{x:cx+sg.w,y:base-1.4},thickness:0.5,color});
+      }
+      cx+=sg.w;
+    }
+  }
+  function para(runs,o){
+    o=o||{};
+    const size=o.size||fs,Ld=o.L||size*1.45,x=left+(o.indent||0),maxW=cw-(o.indent||0);
+    wrap(runs,maxW,size).forEach((ln,idx)=>{
+      ensure(Ld);
+      if(o.bar)page.drawLine({start:{x:left+3,y:H-y},end:{x:left+3,y:H-(y+Ld)},thickness:1.5,color:g(0.6)});
+      if(o.marker&&idx===0)page.drawText(o.marker,{x:left+o.mx,y:bl(y,Ld,size),size,font:F.r,color:BLACK});
+      drawSegs(ln.segs,x,y,Ld,size);y+=Ld;
+    });
+    y+=o.after!==undefined?o.after:fs*0.55;
+  }
+  function heading(level,text){
+    const mult=level===1?1.5:level===2?1.25:1.08,size=fs*mult,Ld=size*1.3,before=fs*(level===1?0.8:0.7);
+    const lines=wrap(inlineRuns(clean(text),{b:true}),cw,size);
+    if(y>top+0.5){if(y+before+lines.length*Ld+fs*2.9>bottom)newPage();else y+=before}
+    lines.forEach(ln=>{ensure(Ld);drawSegs(ln.segs,left,y,Ld,size);y+=Ld});
+    y+=fs*0.35;
+  }
+  function rule(color,thick,before,after){
+    ensure(before+after+1);y+=before;
+    page.drawLine({start:{x:left,y:H-y},end:{x:left+cw,y:H-y},thickness:thick,color});y+=after;
+  }
+  function codeBlock(lines){
+    const size=fs*0.82,Ld=size*1.35,maxCh=Math.max(20,Math.floor((cw-12)/(size*0.6))),padT=5,padB=5;
+    const rows=[];
+    for(const ln of lines){
+      const t=ln.replace(/\s+$/,'');
+      if(!t){rows.push('');continue}
+      for(let k=0;k<t.length;k+=maxCh)rows.push(t.slice(k,k+maxCh));
+    }
+    if(!rows.length)rows.push('');
+    let i=0;
+    while(i<rows.length){
+      let n=Math.floor((bottom-y-padT-padB)/Ld);
+      if(n<1&&y>top+0.5){newPage();n=Math.floor((bottom-y-padT-padB)/Ld)}
+      n=Math.max(1,Math.min(n,rows.length-i));
+      const chunk=rows.slice(i,i+n),bh=padT+chunk.length*Ld+padB;
+      page.drawRectangle({x:left,y:H-(y+bh),width:cw,height:bh,color:g(0.94),borderColor:g(0.75),borderWidth:0.5});
+      chunk.forEach((t,k)=>{if(t)page.drawText(t,{x:left+6,y:bl(y+padT+k*Ld,Ld,size),size,font:F.c,color:BLACK})});
+      y+=bh;i+=chunk.length;
+      if(i<rows.length)newPage();
+    }
+    y+=fs*0.7;
+  }
+  function table(rows){
+    const n=Math.max.apply(null,rows.map(r=>r.length));if(!n)return;
+    const colW=cw/n,size=fs*0.88,Ld=size*1.3,pad=4,maxLines=Math.max(1,Math.floor((bottom-top-2*pad)/Ld)-1);
+    const prep=rows.map((r,ri)=>{
+      const cells=[];
+      for(let c=0;c<n;c++){
+        let ls=wrap(inlineRuns(clean((r[c]||'').trim()),ri===0?{b:true}:{}),colW-2*pad,size);
+        if(ls.length>maxLines)ls=ls.slice(0,maxLines);
+        cells.push(ls);
+      }
+      return {cells,h:Math.max.apply(null,cells.map(c=>c.length).concat([1]))*Ld+2*pad,head:ri===0};
+    });
+    const drawRow=row=>{
+      row.cells.forEach((ls,c)=>{
+        const x=left+c*colW,opt={x,y:H-(y+row.h),width:colW,height:row.h,borderColor:BLACK,borderWidth:0.5};
+        if(row.head)opt.color=g(0.9);
+        page.drawRectangle(opt);
+        ls.forEach((ln,k)=>drawSegs(ln.segs,x+pad,y+pad+k*Ld,Ld,size));
+      });
+      y+=row.h;
+    };
+    prep.forEach((row,ri)=>{
+      if(y+row.h>bottom&&y>top+0.5){newPage();if(ri>0)drawRow(prep[0])}
+      drawRow(row);
+    });
+    y+=fs*0.6;
+  }
+  function pill(label,dark){
+    const size=fs*0.8,h=size*1.2+5,w=F.b.widthOfTextAtSize(label,size)+14;
+    const opt={x:left,y:H-(y+h),width:w,height:h};
+    if(dark)opt.color=BLACK;else{opt.borderColor=BLACK;opt.borderWidth=0.8}
+    page.drawRectangle(opt);
+    page.drawText(label,{x:left+7,y:H-(y+h/2+size*0.33),size,font:F.b,color:dark?g(1):BLACK});
+    y+=h+5;
+  }
+
+  newPage();
+  const total=conv.messages.length,shortTitle=clean(conv.title).slice(0,70);
+  if(S.title_header){
+    const size=fs*2.1,Ld=size*1.25;
+    wrap([{t:clean(conv.title),f:'b'}],cw,size).forEach(ln=>{ensure(Ld);drawSegs(ln.segs,left,y,Ld,size);y+=Ld});
+    y+=fs*0.4;
+    if(conv.url)para([{t:clean('Source: '+conv.url),f:'r',gray:0.33}],{size:fs*0.8,L:fs*1.1,after:2});
+    para([{t:'Exported '+stamp()+'  |  '+total+' messages  |  '+words(conv)+' words',f:'r',gray:0.33}],{size:fs*0.8,L:fs*1.1,after:2});
+    rule(BLACK,1.5,8,14);
+  }
+  let lastYield=Date.now();
+  for(let mi=0;mi<total;mi++){
+    const m=conv.messages[mi];
+    if(S.role_labels&&m.role!=='note'){ensure(fs*0.96+5+5+fs*2.9);pill(roleName(m.role).toUpperCase(),m.role==='user')}
+    if(S.include_thinking&&m.thinking){
+      const runs=[{t:'Thinking',f:'bi',gray:0.27},{t:'\n',f:'r'}];
+      inlineRuns(clean(m.thinking).replace(/\n+/g,' '),{i:true}).forEach(r=>{r.gray=0.27;runs.push(r)});
+      para(runs,{indent:12,bar:true});
+    }
+    for(const b of parseBlocks(clean(bodyText(m)))){
+      if(b.t==='p')para(linesToRuns(b.lines));
+      else if(b.t==='h')heading(b.level,b.text);
+      else if(b.t==='code')codeBlock(b.lines);
+      else if(b.t==='table')table(b.rows);
+      else if(b.t==='hr')rule(g(0.6),0.5,4,6);
+      else if(b.t==='li')para(inlineRuns(b.text,{}),{indent:18+14*b.level,marker:b.marker,mx:2+14*b.level,after:fs*0.25});
+      else if(b.t==='quote')para(inlineRuns(b.text,{i:true}).map(r=>{r.gray=0.27;return r}),{indent:12,bar:true});
+    }
+    rule(g(0.73),0.5,6,12);
+    onProgress(10+80*(mi+1)/total,'Laying out message '+(mi+1)+' of '+total);
+    if(Date.now()-lastYield>40){await tick();lastYield=Date.now()}
+  }
+  if(S.page_numbers){
+    pages.forEach((p,i)=>{
+      const label='Page '+(i+1)+' of '+pages.length,lw=F.r.widthOfTextAtSize(label,8);
+      let t=shortTitle;while(t.length>3&&F.r.widthOfTextAtSize(t,8)>cw-lw-20)t=t.slice(0,-1);
+      p.drawText(t,{x:M,y:28,size:8,font:F.r,color:g(0.4)});
+      p.drawText(label,{x:W-M-lw,y:28,size:8,font:F.r,color:g(0.4)});
+    });
+  }
+  onProgress(92,'Writing PDF');
+  doc.setTitle(shortTitle);doc.setAuthor('Share2PDF');doc.setCreator('Share2PDF');doc.setProducer('Share2PDF');
+  return await doc.save();
+}
+
+/* ================= history storage (IndexedDB, memory fallback) ================= */
+let dbp=null;
+function getDb(){
+  return dbp||(dbp=new Promise((res,rej)=>{
+    if(!window.indexedDB){rej(new Error('IndexedDB unavailable'));return}
+    let r;try{r=indexedDB.open('share2pdf',1)}catch(e){rej(e);return}
+    r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('files'))r.result.createObjectStore('files',{keyPath:'id'})};
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('blocked'));
+  }));
+}
+function run(mode,fn){
+  return getDb().then(db=>new Promise((res,rej)=>{
+    const tx=db.transaction('files',mode),rq=fn(tx.objectStore('files'));
+    tx.oncomplete=()=>res(rq?rq.result:undefined);tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error||new Error('aborted'));
+  }));
+}
+const mem=[];let persistent=true;
+const byDate=(a,b)=>b.created.localeCompare(a.created);
+const store={
+  async list(){try{if(persistent)return (await run('readonly',s=>s.getAll())).sort(byDate)}catch(e){persistent=false}return mem.slice().sort(byDate)},
+  async put(e){try{if(persistent){await run('readwrite',s=>s.put(e));return}}catch(x){persistent=false}mem.push(e)},
+  async get(id){try{if(persistent)return await run('readonly',s=>s.get(id))}catch(e){persistent=false}return mem.find(x=>x.id===id)},
+  async del(id){try{if(persistent){await run('readwrite',s=>s.delete(id));return}}catch(e){persistent=false}const i=mem.findIndex(x=>x.id===id);if(i>=0)mem.splice(i,1)},
+  async clear(){try{if(persistent)await run('readwrite',s=>s.clear())}catch(e){persistent=false}mem.length=0},
+  async prune(max){const all=await this.list();for(const e of all.slice(max))await this.del(e.id)}
+};
+
+/* ================= tabs, progress, errors ================= */
+function go(v){
+  $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
+  $$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  if(v==='history')loadHistory();
+  window.scrollTo(0,0);
+}
+$$('nav button').forEach(b=>b.onclick=()=>go(b.dataset.v));
+function setProgress(p,msg){$('#barfill').style.width=p+'%';$('#ppct').textContent=Math.round(p)+'%';$('#pmsg').textContent=msg||''}
+function resetPanels(){['#progress','#error','#preview','#result'].forEach(s=>show(s,false))}
+let busy=false;
+function lock(on){busy=on;['#btnRead','#btnPasteText','#btnPasteLink'].forEach(s=>$(s).disabled=on)}
+function showError(e){resetPanels();$('#errmsg').textContent=(e&&e.message)||String(e)||'Unknown error';show('#error')}
+
+/* ================= convert flow ================= */
+let current=null,dlUrl=null,dlFile=null;
+function shareLink(text){const m=String(text).match(SHARE_RE);return m?{url:'https://claude.ai/share/'+m[1],id:m[1]}:null}
+function syncLinkButtons(){const ok=!!shareLink($('#url').value);$('#btnOpen').disabled=!ok;$('#btnOpenRaw').disabled=!ok}
+$('#url').addEventListener('input',syncLinkButtons);
+$('#btnPasteLink').onclick=async()=>{
+  try{const t=(await navigator.clipboard.readText()).trim();const l=shareLink(t);$('#url').value=l?l.url:t;syncLinkButtons();toast(l?'Link pasted':'Pasted, but it is not a share link')}
+  catch(e){toast('Clipboard blocked. Long-press the box to paste.')}
+};
+$('#btnOpen').onclick=()=>{const l=shareLink($('#url').value);if(l)window.open(l.url,'_blank','noopener')};
+$('#btnOpenRaw').onclick=()=>{
+  const l=shareLink($('#url').value);
+  if(l)window.open('https://claude.ai/api/chat_snapshots/'+l.id+'?rendering_mode=messages&render_all_tools=true','_blank','noopener');
+};
+$('#btnPasteText').onclick=async()=>{
+  try{const t=await navigator.clipboard.readText();if(!t.trim())return toast('Clipboard is empty');$('#raw').value=t;toast('Pasted')}
+  catch(e){toast('Clipboard blocked. Long-press the box to paste.')}
+};
+$('#btnRead').onclick=async()=>{
+  if(busy)return;
+  const raw=$('#raw').value;
+  if(!raw.trim())return toast('Paste the conversation first');
+  resetPanels();lock(true);show('#progress');setProgress(10,'Reading text');
+  try{
+    await sleep(120);setProgress(45,'Finding messages');await sleep(120);
+    const conv=parseInput(raw);
+    const l=shareLink($('#url').value);conv.url=l?l.url:'';
+    setProgress(100,'Ready to review');await sleep(200);
+    current=conv;renderPreview();
+  }catch(e){showError(e)}
+  finally{lock(false)}
+};
+function lossFor(conv){
+  const st={lost:0,sample:new Set()};
+  clean(conv.title,st);
+  conv.messages.forEach(m=>{clean(bodyText(m),st);if(S.include_thinking&&m.thinking)clean(m.thinking,st)});
+  return st;
+function renderResult(e){
+  resetPanels();
+  if(dlUrl)URL.revokeObjectURL(dlUrl);
+  dlUrl=URL.createObjectURL(e.blob);
+  dlFile=new File([e.blob],e.filename,{type:e.blob.type});
+  $('#rtitle').textContent=e.title;
+  $('#rmeta').textContent=e.format.toUpperCase()+' \u00b7 '+fmtBytes(e.size)+' \u00b7 '+e.messages+' messages';
+  const a=$('#btnDl');a.href=dlUrl;a.setAttribute('download',e.filename);
+  show('#btnShare',!!(navigator.canShare&&navigator.canShare({files:[dlFile]})));
+  show('#result');
+  $('#result').scrollIntoView({behavior:'smooth',block:'start'});
+  toast('Saved to history');
+}
+$('#btnShare').onclick=async()=>{
+  try{await navigator.share({files:[dlFile],title:dlFile.name})}catch(e){if(e&&e.name!=='AbortError')toast('Could not share')}
+};
+$('#btnAgain').onclick=()=>{resetPanels();current=null;$('#url').value='';$('#raw').value='';syncLinkButtons();window.scrollTo(0,0);$('#url').focus()};
+
+/* ================= history ================= */
+let qT;
+$('#q').addEventListener('input',()=>{clearTimeout(qT);qT=setTimeout(loadHistory,200)});
+async function loadHistory(){
+  try{
+    const q=$('#q').value.trim().toLowerCase();
+    let items=await store.list();
+    if(q)items=items.filter(e=>e.title.toLowerCase().includes(q)||(e.url||'').toLowerCase().includes(q));
+    const total=items.reduce((n,e)=>n+(e.size||0),0);
+    $('#hstat').textContent=items.length?items.length+' file'+(items.length>1?'s':'')+' \u00b7 '+fmtBytes(total):'';
+    $('#btnClear').disabled=!items.length;
+    show('#hnote',!persistent);
+    $('#hist').innerHTML=items.length?items.map(e=>
+      '<div class="item"><div class="t"><span class="fmt">'+esc(e.format.toUpperCase())+'</span>'+esc(e.title)+'</div>'+
+      '<div class="m">'+esc(fmtDate(e.created))+' \u00b7 '+e.messages+' msgs \u00b7 '+fmtBytes(e.size)+'</div>'+
+      '<div class="acts"><button class="small" data-dl="'+esc(e.id)+'">Download</button>'+
+      (e.url?'<button class="ghost small" data-reuse="'+esc(e.url)+'">Reuse link</button>':'')+
+      '<button class="ghost small" data-del="'+esc(e.id)+'">Delete</button></div></div>').join('')
+      :'<div class="empty">Nothing here yet.</div>';
+  }catch(e){toast('Could not load history')}
+}
+$('#hist').addEventListener('click',async ev=>{
+  const dl=ev.target.closest('[data-dl]'),del=ev.target.closest('[data-del]'),re=ev.target.closest('[data-reuse]');
+  if(dl){
+    const e=await store.get(dl.dataset.dl);if(!e)return toast('File not found');
+    const u=URL.createObjectURL(e.blob),a=document.createElement('a');
+    a.href=u;a.download=e.filename;document.body.appendChild(a);a.click();
+    setTimeout(()=>{a.remove();URL.revokeObjectURL(u)},10000);
+  }else if(del){
+    if(!confirm('Delete this file?'))return;
+    await store.del(del.dataset.del);toast('Deleted');loadHistory();
+  }else if(re){$('#url').value=re.dataset.reuse;syncLinkButtons();go('convert');toast('Link loaded')}
+});
+$('#btnClear').onclick=async()=>{
+  if(!confirm('Delete ALL files in history? This cannot be undone.'))return;
+  await store.clear();toast('History cleared');loadHistory();
+};
+
+/* ================= settings ================= */
+const map={format:'#s_format',page_size:'#s_page',font_size:'#s_font',role_labels:'#s_role',title_header:'#s_head',
+  page_numbers:'#s_pnum',include_code:'#s_code',include_thinking:'#s_think',max_history:'#s_max',theme:'#s_theme'};
+function fillSettings(){
+  for(const k in map){const el=$(map[k]);if(el.type==='checkbox')el.checked=!!S[k];else el.value=S[k]}
+  $('#s_fontv').textContent=S.font_size;
+}
+function readSettings(){
+  for(const k in map){const el=$(map[k]);S[k]=el.type==='checkbox'?el.checked:el.value}
+  fixSettings();$('#s_fontv').textContent=S.font_size;LS.set('s2p.settings',S);applyTheme();
+}
+let sT;
+function onSetting(){readSettings();clearTimeout(sT);sT=setTimeout(()=>toast('Saved'),300);if(current)updateWarn()}
+Object.values(map).forEach(sel=>$(sel).addEventListener('change',onSetting));
+$('#s_font').addEventListener('input',()=>{readSettings()});
+fillSettings();
+
+/* ================= install, share target, offline ================= */
+let installEvt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;show('#installRow')});
+window.addEventListener('appinstalled',()=>{installEvt=null;show('#installRow',false);toast('Installed')});
+$('#btnInstall').onclick=async()=>{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;show('#installRow',false)};
+
+(function fromShare(){
+  const p=new URLSearchParams(location.search);
+  const t=[p.get('url'),p.get('text'),p.get('title')].filter(Boolean).join('\n');
+  if(!t)return;
+  const l=shareLink(t);
+  if(l){$('#url').value=l.url;syncLinkButtons();toast('Link received. Tap Open page, copy the text, then paste it below.')}
+  history.replaceState(null,'',location.pathname);
+})();
+syncLinkButtons();
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
+}
+</script>
+</body>
+</html>}
+function updateWarn(){
+  const w=$('#warn');
+  if(!current||$('#fmt').value!=='pdf'){show('#warn',false);return}
+  const st=lossFor(current);
+  if(!st.lost){show('#warn',false);return}
+  w.textContent='The PDF cannot show '+st.lost+' character'+(st.lost>1?'s':'')+' ('+[...st.sample].join(' ')+'). Emoji are dropped and other characters show as ?. Choose Markdown or plain text to keep everything.';
+  show('#warn');
+}
+function renderPreview(){
+  resetPanels();
+  const c=current;
+  $('#ptitle').value=c.title;
+  $('#pcount').textContent=c.messages.length;
+  $('#pwords').textContent=words(c).toLocaleString();
+  const u=c.messages.filter(m=>m.role==='user').length,a=c.messages.filter(m=>m.role==='assistant').length;
+  $('#pnote').textContent=c.mode==='json'?'Read from raw data: '+u+' from you, '+a+' from Claude.'
+    :c.mode==='dialog'?'Found You and Claude labels: '+u+' from you, '+a+' from Claude.'
+    :'No You or Claude labels were found, so this will export as one block of text.';
+  $('#pmsgs').innerHTML=c.messages.map(m=>{
+    const tag=m.role==='user'?'YOU':m.role==='assistant'?'CLAUDE':'TEXT',s=(m.text||'[attachment]').slice(0,240);
+    return '<div class="msg"><span class="tag '+(m.role==='user'?'u':'')+'">'+tag+'</span>'+esc(s)+(m.text.length>240?'\u2026':'')+'</div>';
+  }).join('');
+  $('#fmt').value=S.format;
+  updateWarn();
+  show('#preview');
+  $('#preview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('#fmt').addEventListener('change',updateWarn);
+$('#btnCancel').onclick=()=>{resetPanels();current=null};
+
+$('#btnGo').onclick=async()=>{
+  if(!current||busy)return;
+  const fmt=$('#fmt').value;
+  lock(true);$('#btnGo').disabled=true;show('#progress');setProgress(0,'Starting');
+  try{
+    current.title=$('#ptitle').value.trim()||current.title;
+    let blob;
+    if(fmt==='pdf'){
+      if(!window.PDFLib)throw new Error('The PDF engine did not load. Connect to the internet once and reload, or choose Markdown or plain text.');
+      const bytes=await buildPdf(current,setProgress);
+      blob=new Blob([bytes],{type:'application/pdf'});
+    }else{
+      setProgress(50,'Writing file');await tick();
+      blob=new Blob([fmt==='md'?buildMarkdown(current):buildTxt(current)],{type:fmt==='md'?'text/markdown;charset=utf-8':'text/plain;charset=utf-8'});
+    }
+    setProgress(97,'Saving to history');
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const entry={id,format:fmt,title:current.title,url:current.url||'',created:new Date().toISOString(),
+      messages:current.messages.length,words:words(current),size:blob.size,filename:safeName(current.title)+'.'+fmt,blob};
+    await store.put(entry);await store.prune(S.max_history);
+    if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+    setProgress(100,'Done');await sleep(250);
+    renderResult(entry);
+  }catch(e){showError(e)}
+  finally{lock(false);$('#btnGo').disabled=false}
+};
