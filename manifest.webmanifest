@@ -1,7 +1,7 @@
 {
   "name": "Share2PDF",
   "short_name": "Share2PDF",
-  "description": "Turn a copied Claude share conversation into a PDF, Markdown or text file.",
+  "description": "Turn a copied Claude conversation or a video into a PDF, Markdown or text file.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

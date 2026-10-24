@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Share2PDF</title>
-<meta name="description" content="Turn a copied Claude share conversation into a PDF, Markdown or text file.">
+<meta name="description" content="Turn a copied Claude conversation or a video into a PDF, Markdown or text file.">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark light">
 <link rel="manifest" href="manifest.webmanifest">
@@ -80,7 +80,7 @@ input[type=range]{width:100%;accent-color:var(--fg)}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);
   display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px)}
 nav div{display:flex;width:100%;max-width:640px}
-nav button{flex:1;background:transparent;color:var(--mut);border:0;border-radius:0;padding:16px 8px;font-size:13px;letter-spacing:1px;text-transform:uppercase}
+nav button{flex:1;background:transparent;color:var(--mut);border:0;border-radius:0;padding:16px 2px;font-size:12px;letter-spacing:.5px;text-transform:uppercase}
 nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
 #toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);
   padding:10px 16px;border-radius:99px;font-size:14px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s;z-index:9;max-width:90vw;text-align:center}
@@ -170,6 +170,40 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
   </div>
 </section>
 
+<!-- ============ VIDEO ============ -->
+<section id="v-video" class="view">
+  <div class="card">
+    <h2>Video to text</h2>
+    <p class="mut small-t">Runs on this phone. Your video is not uploaded.</p>
+    <input id="vt_file" type="file" accept="video/*,audio/*" class="hide">
+    <button id="vt_pick" class="ghost" style="width:100%">Choose video or audio</button>
+    <div id="vt_name" class="mut small-t" style="margin-top:8px;overflow-wrap:anywhere"></div>
+    <label for="vt_model">Model</label>
+    <select id="vt_model">
+      <option value="Xenova/whisper-tiny">Tiny: fastest (about 40 MB)</option>
+      <option value="Xenova/whisper-base">Base: more accurate (about 75 MB)</option>
+    </select>
+    <button id="vt_go" style="width:100%;margin-top:14px" disabled>Transcribe</button>
+    <div class="warn">Long videos can run out of memory on a phone. Start with clips under 10 minutes and keep the screen on.</div>
+  </div>
+  <div id="vt_prog" class="card hide">
+    <h2>Progress</h2>
+    <div class="bar"><i id="vt_fill"></i></div>
+    <div class="pmsg"><span id="vt_msg"></span><span id="vt_pct"></span></div>
+  </div>
+  <div id="vt_err" class="card err hide"><b>Something went wrong</b><span id="vt_errmsg"></span></div>
+  <div id="vt_res" class="card hide">
+    <h2>Transcript</h2>
+    <textarea id="vt_out" readonly style="min-height:220px"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="vt_copy" class="ghost" style="min-width:80px">Copy</button>
+      <button id="vt_txt" class="ghost" style="min-width:80px">.txt</button>
+      <button id="vt_srt" class="ghost" style="min-width:80px">.srt</button>
+    </div>
+    <button id="vt_export" style="width:100%;margin-top:10px">Export as PDF or Markdown</button>
+  </div>
+</section>
+
 <!-- ============ HISTORY ============ -->
 <section id="v-history" class="view">
   <div class="card">
@@ -219,6 +253,7 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
 
 <nav><div>
   <button data-v="convert" class="on">Convert</button>
+  <button data-v="video">Video</button>
   <button data-v="history">History</button>
   <button data-v="settings">Settings</button>
 </div></nav>
@@ -714,6 +749,63 @@ function lossFor(conv){
   clean(conv.title,st);
   conv.messages.forEach(m=>{clean(bodyText(m),st);if(S.include_thinking&&m.thinking)clean(m.thinking,st)});
   return st;
+}
+function updateWarn(){
+  const w=$('#warn');
+  if(!current||$('#fmt').value!=='pdf'){show('#warn',false);return}
+  const st=lossFor(current);
+  if(!st.lost){show('#warn',false);return}
+  w.textContent='The PDF cannot show '+st.lost+' character'+(st.lost>1?'s':'')+' ('+[...st.sample].join(' ')+'). Emoji are dropped and other characters show as ?. Choose Markdown or plain text to keep everything.';
+  show('#warn');
+}
+function renderPreview(){
+  resetPanels();
+  const c=current;
+  $('#ptitle').value=c.title;
+  $('#pcount').textContent=c.messages.length;
+  $('#pwords').textContent=words(c).toLocaleString();
+  const u=c.messages.filter(m=>m.role==='user').length,a=c.messages.filter(m=>m.role==='assistant').length;
+  $('#pnote').textContent=c.mode==='video'?'Transcript from your video. Pick a format, then generate.':c.mode==='json'?'Read from raw data: '+u+' from you, '+a+' from Claude.'
+    :c.mode==='dialog'?'Found You and Claude labels: '+u+' from you, '+a+' from Claude.'
+    :'No You or Claude labels were found, so this will export as one block of text.';
+  $('#pmsgs').innerHTML=c.messages.map(m=>{
+    const tag=m.role==='user'?'YOU':m.role==='assistant'?'CLAUDE':'TEXT',s=(m.text||'[attachment]').slice(0,240);
+    return '<div class="msg"><span class="tag '+(m.role==='user'?'u':'')+'">'+tag+'</span>'+esc(s)+(m.text.length>240?'\u2026':'')+'</div>';
+  }).join('');
+  $('#fmt').value=S.format;
+  updateWarn();
+  show('#preview');
+  $('#preview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('#fmt').addEventListener('change',updateWarn);
+$('#btnCancel').onclick=()=>{resetPanels();current=null};
+
+$('#btnGo').onclick=async()=>{
+  if(!current||busy)return;
+  const fmt=$('#fmt').value;
+  lock(true);$('#btnGo').disabled=true;show('#progress');setProgress(0,'Starting');
+  try{
+    current.title=$('#ptitle').value.trim()||current.title;
+    let blob;
+    if(fmt==='pdf'){
+      if(!window.PDFLib)throw new Error('The PDF engine did not load. Connect to the internet once and reload, or choose Markdown or plain text.');
+      const bytes=await buildPdf(current,setProgress);
+      blob=new Blob([bytes],{type:'application/pdf'});
+    }else{
+      setProgress(50,'Writing file');await tick();
+      blob=new Blob([fmt==='md'?buildMarkdown(current):buildTxt(current)],{type:fmt==='md'?'text/markdown;charset=utf-8':'text/plain;charset=utf-8'});
+    }
+    setProgress(97,'Saving to history');
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const entry={id,format:fmt,title:current.title,url:current.url||'',created:new Date().toISOString(),
+      messages:current.messages.length,words:words(current),size:blob.size,filename:safeName(current.title)+'.'+fmt,blob};
+    await store.put(entry);await store.prune(S.max_history);
+    if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+    setProgress(100,'Done');await sleep(250);
+    renderResult(entry);
+  }catch(e){showError(e)}
+  finally{lock(false);$('#btnGo').disabled=false}
+};
 function renderResult(e){
   resetPanels();
   if(dlUrl)URL.revokeObjectURL(dlUrl);
@@ -805,63 +897,71 @@ syncLinkButtons();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
   window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
 }
-</script>
-<script src="copy.js"></script>
-</body>
-</html>}
-function updateWarn(){
-  const w=$('#warn');
-  if(!current||$('#fmt').value!=='pdf'){show('#warn',false);return}
-  const st=lossFor(current);
-  if(!st.lost){show('#warn',false);return}
-  w.textContent='The PDF cannot show '+st.lost+' character'+(st.lost>1?'s':'')+' ('+[...st.sample].join(' ')+'). Emoji are dropped and other characters show as ?. Choose Markdown or plain text to keep everything.';
-  show('#warn');
-}
-function renderPreview(){
-  resetPanels();
-  const c=current;
-  $('#ptitle').value=c.title;
-  $('#pcount').textContent=c.messages.length;
-  $('#pwords').textContent=words(c).toLocaleString();
-  const u=c.messages.filter(m=>m.role==='user').length,a=c.messages.filter(m=>m.role==='assistant').length;
-  $('#pnote').textContent=c.mode==='json'?'Read from raw data: '+u+' from you, '+a+' from Claude.'
-    :c.mode==='dialog'?'Found You and Claude labels: '+u+' from you, '+a+' from Claude.'
-    :'No You or Claude labels were found, so this will export as one block of text.';
-  $('#pmsgs').innerHTML=c.messages.map(m=>{
-    const tag=m.role==='user'?'YOU':m.role==='assistant'?'CLAUDE':'TEXT',s=(m.text||'[attachment]').slice(0,240);
-    return '<div class="msg"><span class="tag '+(m.role==='user'?'u':'')+'">'+tag+'</span>'+esc(s)+(m.text.length>240?'\u2026':'')+'</div>';
-  }).join('');
-  $('#fmt').value=S.format;
-  updateWarn();
-  show('#preview');
-  $('#preview').scrollIntoView({behavior:'smooth',block:'start'});
-}
-$('#fmt').addEventListener('change',updateWarn);
-$('#btnCancel').onclick=()=>{resetPanels();current=null};
 
-$('#btnGo').onclick=async()=>{
-  if(!current||busy)return;
-  const fmt=$('#fmt').value;
-  lock(true);$('#btnGo').disabled=true;show('#progress');setProgress(0,'Starting');
+/* ================= video to text ================= */
+const VT_SR=16000, VT_CHUNK=30*VT_SR, VT_LIB='https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+let vtFile=null, vtSegs=[], vtBusy=false, vtLib=null; const vtAsr={};
+const vtBase=()=>vtFile?vtFile.name.replace(/\.[^.]+$/,''):'transcript';
+function vtProgress(p,msg){$('#vt_fill').style.width=p+'%';$('#vt_pct').textContent=Math.round(p)+'%';$('#vt_msg').textContent=msg||''}
+function vtTime(t){const ms=Math.round(t*1000);return pad2(Math.floor(ms/3600000))+':'+pad2(Math.floor(ms%3600000/60000))+':'+pad2(Math.floor(ms%60000/1000))+','+String(ms%1000).padStart(3,'0')}
+function vtSave(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500)}
+async function vtDecode(f){
+  const buf=await f.arrayBuffer(), ctx=new AudioContext({sampleRate:VT_SR});
   try{
-    current.title=$('#ptitle').value.trim()||current.title;
-    let blob;
-    if(fmt==='pdf'){
-      if(!window.PDFLib)throw new Error('The PDF engine did not load. Connect to the internet once and reload, or choose Markdown or plain text.');
-      const bytes=await buildPdf(current,setProgress);
-      blob=new Blob([bytes],{type:'application/pdf'});
-    }else{
-      setProgress(50,'Writing file');await tick();
-      blob=new Blob([fmt==='md'?buildMarkdown(current):buildTxt(current)],{type:fmt==='md'?'text/markdown;charset=utf-8':'text/plain;charset=utf-8'});
-    }
-    setProgress(97,'Saving to history');
-    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    const entry={id,format:fmt,title:current.title,url:current.url||'',created:new Date().toISOString(),
-      messages:current.messages.length,words:words(current),size:blob.size,filename:safeName(current.title)+'.'+fmt,blob};
-    await store.put(entry);await store.prune(S.max_history);
-    if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
-    setProgress(100,'Done');await sleep(250);
-    renderResult(entry);
-  }catch(e){showError(e)}
-  finally{lock(false);$('#btnGo').disabled=false}
+    const a=await ctx.decodeAudioData(buf), mono=new Float32Array(a.length);
+    for(let c=0;c<a.numberOfChannels;c++){const d=a.getChannelData(c);for(let i=0;i<d.length;i++)mono[i]+=d[i]/a.numberOfChannels}
+    return mono;
+  }finally{ctx.close()}
+}
+$('#vt_pick').onclick=()=>$('#vt_file').click();
+$('#vt_file').onchange=()=>{
+  vtFile=$('#vt_file').files[0]||null;
+  $('#vt_name').textContent=vtFile?vtFile.name+' ('+fmtBytes(vtFile.size)+')':'';
+  $('#vt_go').disabled=!vtFile;
 };
+$('#vt_go').onclick=async()=>{
+  if(!vtFile||vtBusy)return;
+  vtBusy=true;$('#vt_go').disabled=true;vtSegs=[];
+  ['#vt_err','#vt_res'].forEach(s=>show(s,false));show('#vt_prog');vtProgress(0,'Loading speech engine');
+  let wl=null;
+  try{
+    try{wl=await navigator.wakeLock.request('screen')}catch(e){}
+    if(!vtLib){
+      try{vtLib=await import(VT_LIB);vtLib.env.allowLocalModels=false}
+      catch(e){throw new Error('The speech engine did not load. Connect to the internet and try again.')}
+    }
+    const id=$('#vt_model').value;
+    vtAsr[id]=vtAsr[id]||vtLib.pipeline('automatic-speech-recognition',id,{progress_callback:p=>{if(p.status==='progress')vtProgress(p.progress,'Downloading model (first time only)')}});
+    let asr;try{asr=await vtAsr[id]}catch(e){delete vtAsr[id];throw new Error('The model could not be downloaded. Check your connection and try again.')}
+    vtProgress(0,'Reading audio');await tick();
+    let audio;try{audio=await vtDecode(vtFile)}catch(e){throw new Error('This browser could not read audio from that file. Try an MP4 or MP3, or open the app in Chrome.')}
+    const n=Math.ceil(audio.length/VT_CHUNK);
+    for(let i=0;i<n;i++){
+      vtProgress(i/n*100,'Transcribing part '+(i+1)+' of '+n);
+      const part=audio.subarray(i*VT_CHUNK,(i+1)*VT_CHUNK);
+      if(part.length<VT_SR/2)continue;
+      const r=await asr(part,{return_timestamps:true}), off=i*30;
+      for(const c of r.chunks||[]){
+        const t=c.text.trim();if(!t)continue;
+        vtSegs.push({s:off+(c.timestamp[0]||0),e:off+(c.timestamp[1]==null?part.length/VT_SR:c.timestamp[1]),t});
+      }
+    }
+    vtProgress(100,'Done');await sleep(250);
+    show('#vt_prog',false);
+    if(!vtSegs.length)throw new Error('No speech was found in this file.');
+    $('#vt_out').value=vtSegs.map(x=>x.t).join(' ');
+    show('#vt_res');$('#vt_res').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){show('#vt_prog',false);$('#vt_errmsg').textContent=(e&&e.message)||'Unknown error';show('#vt_err')}
+  finally{vtBusy=false;$('#vt_go').disabled=!vtFile;if(wl)wl.release().catch(()=>{})}
+};
+$('#vt_copy').onclick=async()=>{try{await navigator.clipboard.writeText($('#vt_out').value);toast('Copied')}catch(e){toast('Could not copy')}};
+$('#vt_txt').onclick=()=>vtSave(safeName(vtBase())+'.txt',$('#vt_out').value);
+$('#vt_srt').onclick=()=>vtSave(safeName(vtBase())+'.srt',vtSegs.map((x,i)=>(i+1)+'\n'+vtTime(x.s)+' --> '+vtTime(x.e)+'\n'+x.t+'\n').join('\n'));
+$('#vt_export').onclick=()=>{
+  const text=$('#vt_out').value.trim();if(!text)return;
+  current={title:vtBase(),url:'',messages:[{role:'note',text,thinking:'',attachments:[]}],mode:'video'};
+  go('convert');renderPreview();
+};
+</script>
+</body>
+</html>
