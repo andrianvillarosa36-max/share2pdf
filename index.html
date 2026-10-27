@@ -116,12 +116,18 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
 
   <div class="card">
     <h2>2. Conversation text</h2>
-    <p class="small-t mut">On the page you opened, long-press, choose Select all, then Copy. Paste it here.</p>
-    <textarea id="raw" placeholder="Paste the conversation here"></textarea>
+    <p class="small-t mut">On the page you opened, long-press, choose Select all, then Copy, and come back here. If the page only lets you copy part of the chat, copy one part, come back, and add it. Every part is added to what is already here. Nothing is replaced.</p>
+    <textarea id="raw" placeholder="The conversation goes here"></textarea>
+    <div id="rawstats" class="mut small-t" style="margin-top:8px"></div>
     <div class="row" style="margin-top:10px">
-      <button id="btnPasteText" class="ghost">Paste text</button>
+      <button id="btnPasteText" class="ghost">Add from clipboard</button>
       <button id="btnRead">Review</button>
     </div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <select id="rawpos" aria-label="Where new parts go"><option value="below">New parts go below</option><option value="above">New parts go above</option></select>
+      <button id="btnRawClear" class="ghost small" style="flex:0 0 auto;min-width:0">Clear</button>
+    </div>
+    <div class="toggle"><span>Add by itself when I come back <span class="mut">(experimental)</span></span><input id="rawauto" type="checkbox"></div>
   </div>
 
   <div id="progress" class="card hide">
@@ -374,8 +380,10 @@ function parseText(raw){
     return {title:first,messages:[{role:'note',text:raw.trim(),thinking:'',attachments:[]}],mode:'plain'};
   }
   const head=lines.slice(0,marks[0].i).join('\n').trim();
-  const title=head&&head.length<=120&&!head.includes('\n')?head:'Shared conversation';
+  const oneLine=!!head&&head.length<=120&&!head.includes('\n');
+  const title=oneLine?head:'Shared conversation';
   const messages=[];
+  if(head&&!oneLine)messages.push({role:'note',text:head,thinking:'',attachments:[]});
   marks.forEach((mk,k)=>{
     const end=k+1<marks.length?marks[k+1].i:lines.length;
     const body=[mk.first].concat(lines.slice(mk.i+1,end)).join('\n').trim();
@@ -703,6 +711,7 @@ function go(v){
   $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
   $$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   if(v==='history')loadHistory();
+  if(v==='convert'){rawStats();rawSave()}
   window.scrollTo(0,0);
 }
 $$('nav button').forEach(b=>b.onclick=()=>go(b.dataset.v));
@@ -726,10 +735,57 @@ $('#btnOpenRaw').onclick=()=>{
   const l=shareLink($('#url').value);
   if(l)window.open('https://claude.ai/api/chat_snapshots/'+l.id+'?rendering_mode=messages&render_all_tools=true','_blank','noopener');
 };
+/* ---- collecting the conversation in pieces (nothing is replaced) ---- */
+const RAW_KEY='s2p.raw',RAWOPT_KEY='s2p.rawopt';
+const rawOpt=Object.assign({pos:'below',auto:false},LS.get(RAWOPT_KEY,{}));
+let rawPieces=0,rawLast='',rawSeen='',rawT=null;
+function rawStats(){
+  const t=$('#raw').value,w=(t.match(/\S+/g)||[]).length;
+  $('#rawstats').textContent=t.trim()?t.length.toLocaleString()+' characters, '+w.toLocaleString()+' words'+(rawPieces?', '+rawPieces+' part'+(rawPieces>1?'s':'')+' added':''):'Nothing here yet';
+}
+function rawFlush(){clearTimeout(rawT);LS.set(RAW_KEY,{text:$('#raw').value,pieces:rawPieces})}
+function rawSave(){clearTimeout(rawT);rawT=setTimeout(rawFlush,400)}
+function rawReset(){$('#raw').value='';rawPieces=0;rawLast='';rawStats();rawFlush()}
+function addRaw(t,auto){
+  t=String(t||'').replace(/\r\n?/g,'\n');
+  if(!t.trim()){if(!auto)toast('Clipboard is empty');return false}
+  const ta=$('#raw'),cur=ta.value;
+  if(t===rawLast||(t.length>=40&&cur.includes(t))){if(!auto)toast('That part is already here, skipped');return false}
+  if(!cur.trim())ta.value=t;
+  else if(rawOpt.pos==='above')ta.value=t.replace(/\n+$/,'')+'\n\n'+cur.replace(/^\n+/,'');
+  else ta.value=cur.replace(/\s+$/,'')+'\n\n'+t.replace(/^\n+/,'');
+  rawPieces++;rawLast=t;rawStats();rawFlush();
+  toast((auto?'Added by itself: ':'Added ')+t.length.toLocaleString()+' characters');
+  ta.scrollTop=rawOpt.pos==='above'?0:ta.scrollHeight;
+  return true;
+}
 $('#btnPasteText').onclick=async()=>{
-  try{const t=await navigator.clipboard.readText();if(!t.trim())return toast('Clipboard is empty');$('#raw').value=t;toast('Pasted')}
+  try{const t=await navigator.clipboard.readText();rawSeen=t;addRaw(t,false)}
   catch(e){toast('Clipboard blocked. Long-press the box to paste.')}
 };
+$('#raw').addEventListener('input',()=>{rawStats();rawSave()});
+$('#raw').addEventListener('paste',e=>{const t=e.clipboardData&&e.clipboardData.getData('text');if(t){rawPieces++;rawLast=t.replace(/\r\n?/g,'\n')}});
+$('#btnRawClear').onclick=()=>{if(!$('#raw').value)return;if(!confirm('Clear all the text?'))return;rawReset();toast('Cleared')};
+$('#rawpos').value=rawOpt.pos;
+$('#rawpos').addEventListener('change',e=>{rawOpt.pos=e.target.value;LS.set(RAWOPT_KEY,rawOpt)});
+$('#rawauto').checked=!!rawOpt.auto;
+$('#rawauto').addEventListener('change',e=>{
+  rawOpt.auto=e.target.checked;LS.set(RAWOPT_KEY,rawOpt);
+  if(rawOpt.auto){toast('Copy something, then come back here.');try{navigator.clipboard.readText().then(t=>{rawSeen=t}).catch(()=>{})}catch(x){}}
+});
+async function rawAuto(){
+  if(!rawOpt.auto||busy||document.visibilityState!=='visible')return;
+  const v=$('#v-convert');if(!v||!v.classList.contains('on'))return;
+  try{const t=await navigator.clipboard.readText();if(t&&t!==rawSeen){rawSeen=t;addRaw(t,true)}}catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')rawFlush();else rawAuto()});
+window.addEventListener('focus',rawAuto);
+window.addEventListener('pagehide',rawFlush);
+(function restoreRaw(){
+  const d=LS.get(RAW_KEY,null);
+  if(d&&typeof d.text==='string'&&d.text.trim()){$('#raw').value=d.text;rawPieces=parseInt(d.pieces,10)||0;toast('Your unfinished text is back')}
+  rawStats();
+})();
 $('#btnRead').onclick=async()=>{
   if(busy)return;
   const raw=$('#raw').value;
@@ -768,6 +824,7 @@ function renderPreview(){
   $('#pnote').textContent=c.mode==='video'?'Transcript from your video. Pick a format, then generate.':c.mode==='json'?'Read from raw data: '+u+' from you, '+a+' from Claude.'
     :c.mode==='dialog'?'Found You and Claude labels: '+u+' from you, '+a+' from Claude.'
     :'No You or Claude labels were found, so this will export as one block of text.';
+  if(c.mode!=='video')$('#pnote').textContent+=' Does the end look too early? Tap Cancel, add the missing part, and press Review again.';
   $('#pmsgs').innerHTML=c.messages.map(m=>{
     const tag=m.role==='user'?'YOU':m.role==='assistant'?'CLAUDE':'TEXT',s=(m.text||'[attachment]').slice(0,240);
     return '<div class="msg"><span class="tag '+(m.role==='user'?'u':'')+'">'+tag+'</span>'+esc(s)+(m.text.length>240?'\u2026':'')+'</div>';
@@ -822,7 +879,7 @@ function renderResult(e){
 $('#btnShare').onclick=async()=>{
   try{await navigator.share({files:[dlFile],title:dlFile.name})}catch(e){if(e&&e.name!=='AbortError')toast('Could not share')}
 };
-$('#btnAgain').onclick=()=>{resetPanels();current=null;$('#url').value='';$('#raw').value='';syncLinkButtons();window.scrollTo(0,0);$('#url').focus()};
+$('#btnAgain').onclick=()=>{resetPanels();current=null;$('#url').value='';rawReset();syncLinkButtons();window.scrollTo(0,0);$('#url').focus()};
 
 /* ================= history ================= */
 let qT;
@@ -963,5 +1020,6 @@ $('#vt_export').onclick=()=>{
   go('convert');renderPreview();
 };
 </script>
+<script src="copy.js"></script>
 </body>
 </html>
