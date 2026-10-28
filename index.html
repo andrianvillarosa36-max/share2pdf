@@ -157,6 +157,19 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
       <option value="md">Markdown (.md)</option>
       <option value="txt">Plain text (.txt)</option>
     </select>
+    <label for="layout">Layout</label>
+    <select id="layout">
+      <option value="chat">Conversation (as it was)</option>
+      <option value="research">Unfinished research project</option>
+    </select>
+    <div id="resbox" class="hide">
+      <p class="small-t mut" style="margin-top:8px">The app rearranges the conversation into a research project: the question, findings so far, open questions, next steps and links. It follows simple rules and does not understand the text the way Claude does, so read it and edit anything below before you generate.</p>
+      <div id="resfound" class="small-t" style="margin-bottom:8px"></div>
+      <textarea id="resedit" spellcheck="false" style="min-height:360px" aria-label="Research project text"></textarea>
+      <div class="small-t mut" style="margin-top:6px">Lines starting with ## are headings, lines starting with - are bullets, and - [ ] is a to-do.</div>
+      <div class="toggle"><span>Keep the full conversation at the end</span><input id="resapp" type="checkbox"></div>
+      <button id="resrebuild" class="ghost small" style="margin-top:8px">Rebuild from the conversation</button>
+    </div>
     <div id="warn" class="warn hide"></div>
     <div class="row" style="margin-top:14px">
       <button id="btnCancel" class="ghost">Cancel</button>
@@ -230,6 +243,8 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
     <h2>Output</h2>
     <label for="s_format">Default format</label>
     <select id="s_format"><option value="pdf">PDF</option><option value="md">Markdown</option><option value="txt">Plain text</option></select>
+    <label for="s_layout">Default layout</label>
+    <select id="s_layout"><option value="chat">Conversation (as it was)</option><option value="research">Unfinished research project</option></select>
     <label for="s_page">Page size (PDF)</label>
     <select id="s_page"><option>A4</option><option>Letter</option></select>
     <label for="s_font">Font size (PDF): <b id="s_fontv">10</b> pt</label>
@@ -242,6 +257,7 @@ nav button.on{color:var(--fg);box-shadow:inset 0 3px 0 var(--fg)}
     <div class="toggle"><span>Page numbers (PDF)</span><input id="s_pnum" type="checkbox"></div>
     <div class="toggle"><span>Include code blocks</span><input id="s_code" type="checkbox"></div>
     <div class="toggle"><span>Include Claude's thinking</span><input id="s_think" type="checkbox"></div>
+    <div class="toggle"><span>Research layout: keep the full conversation at the end</span><input id="s_resapp" type="checkbox"></div>
   </div>
   <div class="card">
     <h2>App</h2>
@@ -279,12 +295,14 @@ const LS={
   set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 };
 const DEFAULTS={format:'pdf',page_size:'A4',font_size:10,role_labels:true,title_header:true,page_numbers:true,
-  include_code:true,include_thinking:false,max_history:50,theme:'dark'};
+  include_code:true,include_thinking:false,max_history:50,theme:'dark',layout:'chat',res_appendix:true};
 let S=Object.assign({},DEFAULTS,LS.get('s2p.settings',{}));
 function fixSettings(){
   if(!['pdf','md','txt'].includes(S.format))S.format='pdf';
   if(!['A4','Letter'].includes(S.page_size))S.page_size='A4';
   if(!['dark','light','system'].includes(S.theme))S.theme='dark';
+  if(!['chat','research'].includes(S.layout))S.layout='chat';
+  S.res_appendix=S.res_appendix!==false;
   S.font_size=Math.max(8,Math.min(16,parseInt(S.font_size,10)||10));
   S.max_history=Math.max(5,Math.min(500,parseInt(S.max_history,10)||50));
 }
@@ -308,6 +326,7 @@ function stamp(){const d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()
 const words=conv=>conv.messages.reduce((n,m)=>n+m.text.split(/\s+/).filter(Boolean).length,0);
 const safeName=t=>(String(t).normalize('NFKD').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60)||'conversation');
 const roleName=r=>r==='user'?'You':r==='assistant'?'Claude':'';
+
 
 /* ================= text cleaning (PDF fonts are Latin only) ================= */
 const WIN=new Set();
@@ -457,7 +476,10 @@ function parseBlocks(text){
     if(m){
       flush();
       const level=Math.min(Math.floor(m[1].replace(/\t/g,'  ').length/2),3);
-      out.push({t:'li',level,marker:/^\d/.test(m[2])?m[2]:'\u2022',text:m[3]});i++;continue;
+      let marker=/^\d/.test(m[2])?m[2]:'\u2022',text=m[3];
+      const cb=text.match(/^\[( |x|X)\]\s+(.*)$/);
+      if(cb){marker=cb[1]===' '?'[ ]':'[x]';text=cb[2]}
+      out.push({t:'li',level,marker,text});i++;continue;
     }
     if(ln.trimStart().startsWith('>')){flush();out.push({t:'quote',text:ln.trimStart().replace(/^>+\s?/,'')});i++;continue}
     para.push(ln);i++;
@@ -510,7 +532,9 @@ async function buildPdf(conv,onProgress){
   const pages=[];let page,y=0;
   const newPage=()=>{page=doc.addPage([W,H]);pages.push(page);y=top};
   const ensure=h=>{if(y+h>bottom&&y>top+0.5)newPage()};
-  const wid=(t,f,sz)=>F[f].widthOfTextAtSize(t,sz);
+  // pdf-lib measures with kerning but draws without it, so add up single characters instead
+  const wc={r:{},b:{},i:{},bi:{},c:{}};
+  const wid=(t,f,sz)=>{let w=0;const c=wc[f];for(const ch of t){let u=c[ch];if(u===undefined)u=c[ch]=F[f].widthOfTextAtSize(ch,1000);w+=u}return w*sz/1000};
   const bl=(yTop,Ld,size)=>H-(yTop+Ld/2+size*0.3);
 
   function wrap(runs,maxW,size){
@@ -641,7 +665,7 @@ async function buildPdf(conv,onProgress){
     wrap([{t:clean(conv.title),f:'b'}],cw,size).forEach(ln=>{ensure(Ld);drawSegs(ln.segs,left,y,Ld,size);y+=Ld});
     y+=fs*0.4;
     if(conv.url)para([{t:clean('Source: '+conv.url),f:'r',gray:0.33}],{size:fs*0.8,L:fs*1.1,after:2});
-    para([{t:'Exported '+stamp()+'  |  '+total+' messages  |  '+words(conv)+' words',f:'r',gray:0.33}],{size:fs*0.8,L:fs*1.1,after:2});
+    para([{t:conv.metaLine||('Exported '+stamp()+'  |  '+total+' messages  |  '+words(conv)+' words'),f:'r',gray:0.33}],{size:fs*0.8,L:fs*1.1,after:2});
     rule(BLACK,1.5,8,14);
   }
   let lastYield=Date.now();
@@ -809,7 +833,7 @@ function lossFor(conv){
 function updateWarn(){
   const w=$('#warn');
   if(!current||$('#fmt').value!=='pdf'){show('#warn',false);return}
-  const st=lossFor(current);
+  const st=lossFor(outputConv());
   if(!st.lost){show('#warn',false);return}
   w.textContent='The PDF cannot show '+st.lost+' character'+(st.lost>1?'s':'')+' ('+[...st.sample].join(' ')+'). Emoji are dropped and other characters show as ?. Choose Markdown or plain text to keep everything.';
   show('#warn');
@@ -830,6 +854,7 @@ function renderPreview(){
     return '<div class="msg"><span class="tag '+(m.role==='user'?'u':'')+'">'+tag+'</span>'+esc(s)+(m.text.length>240?'\u2026':'')+'</div>';
   }).join('');
   $('#fmt').value=S.format;
+  $('#layout').value=S.layout;$('#resapp').checked=!!S.res_appendix;$('#resedit').value='';resGen='';resSync(true);
   updateWarn();
   show('#preview');
   $('#preview').scrollIntoView({behavior:'smooth',block:'start'});
@@ -843,22 +868,25 @@ $('#btnGo').onclick=async()=>{
   lock(true);$('#btnGo').disabled=true;show('#progress');setProgress(0,'Starting');
   try{
     current.title=$('#ptitle').value.trim()||current.title;
+    const src=current,out=outputConv();
+    if(!out.messages.some(m=>(m.text||'').trim()||(m.attachments&&m.attachments.length)))throw new Error('There is no text to export. Add some text to the research box, or switch the layout back to Conversation.');
     let blob;
     if(fmt==='pdf'){
       if(!window.PDFLib)throw new Error('The PDF engine did not load. Connect to the internet once and reload, or choose Markdown or plain text.');
-      const bytes=await buildPdf(current,setProgress);
+      const bytes=await buildPdf(out,setProgress);
       blob=new Blob([bytes],{type:'application/pdf'});
     }else{
       setProgress(50,'Writing file');await tick();
-      blob=new Blob([fmt==='md'?buildMarkdown(current):buildTxt(current)],{type:fmt==='md'?'text/markdown;charset=utf-8':'text/plain;charset=utf-8'});
+      blob=new Blob([fmt==='md'?buildMarkdown(out):buildTxt(out)],{type:fmt==='md'?'text/markdown;charset=utf-8':'text/plain;charset=utf-8'});
     }
     setProgress(97,'Saving to history');
     const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    const entry={id,format:fmt,title:current.title,url:current.url||'',created:new Date().toISOString(),
-      messages:current.messages.length,words:words(current),size:blob.size,filename:safeName(current.title)+'.'+fmt,blob};
+    const entry={id,format:fmt,title:out.title,url:out.url||'',created:new Date().toISOString(),
+      messages:src.messages.length,words:words(src),size:blob.size,filename:safeName(out.title)+'.'+fmt,blob};
     await store.put(entry);await store.prune(S.max_history);
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
     setProgress(100,'Done');await sleep(250);
+    current=out;
     renderResult(entry);
   }catch(e){showError(e)}
   finally{lock(false);$('#btnGo').disabled=false}
@@ -880,6 +908,199 @@ $('#btnShare').onclick=async()=>{
   try{await navigator.share({files:[dlFile],title:dlFile.name})}catch(e){if(e&&e.name!=='AbortError')toast('Could not share')}
 };
 $('#btnAgain').onclick=()=>{resetPanels();current=null;$('#url').value='';rawReset();syncLinkButtons();window.scrollTo(0,0);$('#url').focus()};
+
+/* ================= research project layout =================
+   Rule based, no AI: it picks out questions, headings, bullets and sentences that
+   match cue words. Every line it writes is an excerpt of the conversation. */
+const RES_NEXT=/\b(?:next steps?|to-?do|you (?:could|should|will need to|need to)|you'll need to|we (?:could|should|need to)|still needs? to|make sure|remember to|don't forget|follow[- ]ups?|worth (?:checking|testing|trying|verifying)|i(?:'d| would) suggest)\b/i;
+const RES_USERNEXT=/\b(?:next steps?|to-?do|still need|i need to|i have to|i plan to|later on|eventually)\b/i;
+const RES_GAP=/\b(?:not sure|unsure|unclear|unknown|unverified|untested|caveats?|limitations?|assum(?:e|es|ed|ing|ption|ptions)|tbd|to be determined|open questions?|unresolved|depends on|might not|may not|not guaranteed|risks?|haven't (?:verified|tested|checked|confirmed)|hasn't been (?:verified|tested|checked|confirmed)|(?:couldn't|could not|can't|cannot) (?:verify|confirm|test|check)|not (?:yet )?(?:verified|tested|confirmed|checked|decided|implemented|finished))\b/i;
+const RES_DEC=/\b(?:in short|in summary|to summari[sz]e|bottom line|the (?:short )?answer is|key takeaways?|conclusion|i(?:'d| would) (?:go with|recommend)|i recommend|my recommendation|best (?:option|approach|choice|way)|root cause|the (?:cause|fix|problem|issue) (?:is|was)|let's go with|going with|decided|settled on|we'll use)\b/i;
+const RES_HEAD_NEXT=/next steps?|to-?do|action items?|what's (?:left|next)|remaining|still to do|follow[- ]?ups?|roadmap|recommended steps|what to do|open items?/i;
+const RES_HEAD_GAP=/open questions?|risks?|caveats?|limitations?|unknowns?|unverified|not (?:verified|tested)|assumptions?/i;
+const resNorm=s=>String(s).replace(/[\u2018\u2019]/g,"'");
+function resPlain(s){
+  return String(s||'').replace(/```[\s\S]*?(?:```|$)/g,' ')
+    .replace(/!?\[([^\]]*)\]\([^)\s]+\)/g,'$1')
+    .replace(/`([^`]*)`/g,'$1').replace(/(\*\*|__)(.+?)\1/g,'$2').replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g,'$1')
+    .replace(/^\s*(?:[-*+\u2022]|\d+[.)])\s+/,'').replace(/^\s*#{1,6}\s+/,'').replace(/^\s*>+\s?/,'')
+    .replace(/\s+/g,' ').trim();
+}
+function resClip(s,n){
+  s=String(s).trim();if(s.length<=n)return s;
+  let c=s.slice(0,n);
+  if(/[\ud800-\udbff]$/.test(c))c=c.slice(0,-1);
+  const k=Math.max(c.lastIndexOf('. '),c.lastIndexOf('? '),c.lastIndexOf('! '));
+  if(k>n*0.6)return c.slice(0,k+1);
+  const w=c.lastIndexOf(' ');
+  return (w>n*0.5?c.slice(0,w):c).replace(/[\s,;:\u2014-]+$/,'')+'...';
+}
+function resDigest(text){
+  const out={heads:[],items:[],paras:[],checks:[]};
+  let para=[],head='',inCode=false;
+  const flush=()=>{if(para.length){out.paras.push(para.join(' '));para=[]}};
+  for(const ln of String(text||'').replace(/\r\n?/g,'\n').split('\n')){
+    const t=ln.trim();
+    if(t.startsWith('```')){flush();inCode=!inCode;continue}
+    if(inCode)continue;
+    if(!t){flush();continue}
+    let m=t.match(/^#{1,6}\s+(.*)$/);
+    if(!m){const b=t.match(/^\*\*([^*]{1,80})\*\*:?$/);if(b&&!/[.!?]$/.test(b[1]))m=b}
+    if(!m)m=t.match(/^([A-Z][^.!?]{0,58}):$/);
+    if(m){flush();head=resNorm(resPlain(m[1]));if(head)out.heads.push(head);continue}
+    m=t.match(/^(?:[-*+\u2022]|\d+[.)])\s+(.*)$/);
+    if(m){
+      flush();
+      const cb=m[1].match(/^\[( |x|X)\]\s+(.*)$/),it=resPlain(cb?cb[2]:m[1]);
+      if(it){out.items.push({t:it,head});if(cb&&cb[1]===' ')out.checks.push(it)}
+      continue;
+    }
+    if(t[0]==='|'||/^[-*_=]{3,}$/.test(t)){flush();continue}
+    para.push(t);
+  }
+  flush();return out;
+}
+function resSents(d,min){
+  const out=[];
+  const add=t=>{for(const s of resPlain(t).split(/(?<=[.!?])\s+(?=[A-Z0-9"'(\[])/)){const x=s.trim();if(x.length>=min&&x.length<=600)out.push(x)}};
+  d.paras.forEach(add);d.items.forEach(i=>add(i.t));
+  return out;
+}
+const resPl=(n,w)=>n+' '+w+(n===1?'':'s');
+function buildResearch(conv){
+  const msgs=conv.messages||[];
+  const users=msgs.filter(m=>m.role==='user'),hasUser=users.length>0;
+  const dg=msgs.map(m=>({m,d:resDigest(m.text||'')}));
+  const answers=dg.filter(x=>x.m.role!=='user');
+  const big=answers.length>25;
+  const seen=new Set(),key=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,90);
+  const fresh=s=>{const k=key(s);if(!k||seen.has(k))return false;seen.add(k);return true};
+
+  // next steps: the last three answers, plus what you said you still need
+  const next=[];
+  for(const {d} of answers.slice(-3)){
+    d.checks.forEach(t=>{if(fresh(t))next.push(t)});
+    d.items.forEach(i=>{if(RES_HEAD_NEXT.test(i.head)&&fresh(i.t))next.push(i.t)});
+    resSents(d,20).forEach(s=>{if(RES_NEXT.test(resNorm(s))&&fresh(s))next.push(s)});
+  }
+  for(const m of users.slice(-3)){
+    resSents(resDigest(m.text||''),20).forEach(s=>{if(RES_USERNEXT.test(resNorm(s))&&fresh(s))next.push('You said: '+s)});
+  }
+  // gaps, assumptions and risks: every answer
+  const gaps=[];
+  for(const {d} of answers){
+    d.items.forEach(i=>{if(RES_HEAD_GAP.test(i.head)&&fresh(i.t))gaps.push(i.t)});
+    resSents(d,20).forEach(s=>{if(RES_GAP.test(resNorm(s))&&fresh(s))gaps.push(s)});
+  }
+  // decisions and conclusions: everything said
+  const dec=[];
+  for(const {d} of dg)resSents(d,20).forEach(s=>{if(RES_DEC.test(resNorm(s))&&fresh(s))dec.push(s)});
+  // still open right now
+  const open=[],last=msgs[msgs.length-1];
+  if(last&&last.role==='user')open.push('Waiting for an answer: '+resClip(resPlain(last.text),220));
+  else if(last&&last.role==='assistant'){
+    resSents(dg[dg.length-1].d,8).filter(s=>/\?$/.test(s)).slice(0,4).forEach(s=>open.push('Claude asked: '+resClip(s,220)));
+  }
+  // links and files
+  const links=[],seenU=new Set();
+  const addLink=(label,u)=>{
+    u=u.replace(/[.,;:!?*_`'"]+$/,'');
+    if(!u||seenU.has(u)||u===conv.url)return;
+    seenU.add(u);links.push(label&&label!==u?resClip(label,80)+': '+u:u);
+  };
+  for(const m of msgs){
+    const t=m.text||'';
+    t.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,(_,a,b)=>{addLink(resPlain(a),b);return ''});
+    (t.match(/https?:\/\/[^\s<>"'\])]+/g)||[]).forEach(u=>addLink('',u));
+    (m.attachments||[]).forEach(a=>{const k='file:'+a;if(!seenU.has(k)){seenU.add(k);links.push('File: '+a)}});
+  }
+
+  // findings: one block per answer
+  const fl=[];let rounds=0,findings=0,asked='';
+  for(const {m,d} of dg){
+    if(m.role==='user'){asked=m.text||'';continue}
+    const para=d.paras.find(p=>{const t=resPlain(p);return t.length>=40})||d.paras[0]||'';
+    const summary=para?resClip(resPlain(para),big?200:320):'';
+    const points=d.items.filter(i=>!RES_HEAD_NEXT.test(i.head)&&!RES_HEAD_GAP.test(i.head)).slice(0,big?2:4).map(i=>resClip(i.t,180));
+    const heads=(!summary&&!points.length)?d.heads.slice(0,3):[];
+    if(!summary&&!points.length&&!heads.length){asked='';continue}
+    rounds++;
+    const ask=asked?(users[0]&&asked===users[0].text?'Main question':resClip(resPlain(asked),big?70:110)):'';
+    fl.push('### '+(hasUser?'Round':'Part')+' '+rounds+(ask?': '+ask:''),'');
+    if(summary)fl.push(summary,'');
+    if(heads.length)fl.push('Topics: '+heads.join('; '),'');
+    points.forEach(p=>fl.push('- '+p));
+    if(points.length)fl.push('');
+    findings+=(summary?1:0)+points.length+(heads.length?1:0);
+    asked='';
+  }
+
+  const q=resClip(resPlain(hasUser?users[0].text:''),600)||resClip(resPlain(conv.title||'Shared conversation'),300);
+  const follow=users.slice(1).map(m=>resClip(resPlain(m.text),180)).filter(Boolean);
+  const nextF=next.slice(-15),gapsF=gaps.slice(-12),decF=dec.slice(-10),linksF=links.slice(0,40);
+  const nA=msgs.filter(m=>m.role==='assistant').length;
+  const counts={questions:users.length,findings,open:open.length,gaps:gapsF.length,next:nextF.length,links:links.length};
+
+  const o=[];
+  const sec=(h,lines)=>{if(lines.length)o.push('## '+h,'',...lines,'')};
+  o.push('## Overview','',
+    '- **Status:** Unfinished. Work in progress.',
+    '- **Based on:** '+resPl(msgs.length,'message')+(hasUser?' ('+users.length+' from you, '+nA+' from Claude)':'')+', about '+words(conv).toLocaleString()+' words',
+    ...(conv.url?['- **Source:** '+conv.url]:[]),
+    '- **Last updated:** '+stamp(),
+    '- **Found automatically:** '+resPl(counts.questions,'question')+' and requests, '+resPl(counts.findings,'finding')+', '+resPl(counts.open+counts.gaps,'open item')+', '+resPl(counts.next,'next step')+', '+resPl(counts.links,'source'),'');
+  sec(hasUser?'Research question':'Subject',['> '+q]);
+  sec('Follow-up questions and requests',follow.slice(0,30).map((t,i)=>(i+2)+'. '+t).concat(follow.length>30?['(and '+(follow.length-30)+' more in the full conversation)']:[]));
+  sec('Findings so far',fl.length?fl.concat(big?['Long conversation, so each round is shortened here. Nothing is left out of the full conversation.']:[]):['Nothing could be picked out automatically. Add your findings here.']);
+  sec('Decisions and conclusions',decF.map(t=>'- '+t));
+  sec('Open questions',open.length?open.map(t=>'- '+t):['- None found automatically. Add your own here.']);
+  sec('Gaps, assumptions and risks',gapsF.map(t=>'- '+t));
+  sec('Next steps',nextF.length?nextF.map(t=>'- [ ] '+t):['- None found automatically. Add your own here.']);
+  sec('Sources and references',linksF.map(t=>'- '+t).concat(links.length>40?['(and '+(links.length-40)+' more in the full conversation)']:[]));
+  sec('How to continue',['Give this file to Claude in a new chat and say: "Continue this research project. Start with the open questions and the next steps, and tell me what is still missing."']);
+  return {text:o.join('\n').replace(/\n{3,}/g,'\n\n').trim(),counts};
+}
+function resTitle(conv){
+  const t0=String(conv.title||'').trim();
+  if(/^research project\b/i.test(t0))return t0;
+  if(t0&&!/^(?:shared conversation|pasted text)$/i.test(t0))return 'Research project: '+t0;
+  const ms=conv.messages||[],m=ms.find(x=>x.role==='user')||ms[0];
+  const s=m?resClip(resPlain(m.text),70).replace(/\.\.\.$/,'').replace(/[\s.?!:;,]+$/,''):'';
+  return 'Research project'+(s?': '+s:'');
+}
+function assembleResearch(conv,front,withAll){
+  const msgs=[];
+  if(String(front||'').trim())msgs.push({role:'note',text:String(front).trim(),thinking:'',attachments:[]});
+  if(withAll){
+    msgs.push({role:'note',text:'## Appendix: full conversation\n\nThe original messages, unchanged.',thinking:'',attachments:[]});
+    conv.messages.forEach(m=>msgs.push(m));
+  }
+  return {title:resTitle(conv),url:conv.url||'',messages:msgs,mode:'research',
+    metaLine:'Exported '+stamp()+'  |  Unfinished research project'};
+}
+let resGen='',resWT;
+function isRes(){return $('#layout').value==='research'}
+function outputConv(){
+  if(!current||current.mode==='research'||!isRes())return current;
+  return assembleResearch(current,$('#resedit').value,$('#resapp').checked);
+}
+function resBuild(){
+  const r=buildResearch(current),c=r.counts;
+  resGen=r.text;$('#resedit').value=r.text;
+  $('#resfound').textContent='Found: '+resPl(c.questions,'question')+', '+resPl(c.findings,'finding')+', '+resPl(c.open+c.gaps,'open item')+', '+resPl(c.next,'next step')+', '+resPl(c.links,'source')+'. Every line is an excerpt from the conversation.';
+}
+function resSync(rebuild){
+  const on=isRes();show('#resbox',on);
+  if(on&&current&&(rebuild||!$('#resedit').value.trim()))resBuild();
+}
+$('#layout').addEventListener('change',()=>{resSync(false);updateWarn()});
+$('#resapp').addEventListener('change',updateWarn);
+$('#resedit').addEventListener('input',()=>{clearTimeout(resWT);resWT=setTimeout(updateWarn,300)});
+$('#resrebuild').onclick=()=>{
+  if(!current)return;
+  if($('#resedit').value!==resGen&&!confirm('Replace your edits with a fresh version?'))return;
+  resBuild();updateWarn();toast('Rebuilt');
+};
 
 /* ================= history ================= */
 let qT;
@@ -921,7 +1142,8 @@ $('#btnClear').onclick=async()=>{
 
 /* ================= settings ================= */
 const map={format:'#s_format',page_size:'#s_page',font_size:'#s_font',role_labels:'#s_role',title_header:'#s_head',
-  page_numbers:'#s_pnum',include_code:'#s_code',include_thinking:'#s_think',max_history:'#s_max',theme:'#s_theme'};
+  page_numbers:'#s_pnum',include_code:'#s_code',include_thinking:'#s_think',max_history:'#s_max',theme:'#s_theme',
+  layout:'#s_layout',res_appendix:'#s_resapp'};
 function fillSettings(){
   for(const k in map){const el=$(map[k]);if(el.type==='checkbox')el.checked=!!S[k];else el.value=S[k]}
   $('#s_fontv').textContent=S.font_size;
